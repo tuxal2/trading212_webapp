@@ -2,7 +2,7 @@
 
 Precedence (highest first):
   1. explicit parameters (e.g. CLI ``--username``)
-  2. environment variables ``T212_USERNAME``, ``T212_PASSWORD``, ``T212_OTP``,
+  2. environment variables ``T212_USERNAME``, ``T212_PASSWORD``, ``T212_TOTP_SECRET``,
      ``T212_TURNSTILE_TOKEN``, ``T212_ACCOUNT``, ``T212_CONFIRM_ORDERS``, ``T212_CONFIG``
   3. config file (default: ``~/.config/trading212/config.toml``)
   4. defaults
@@ -45,7 +45,11 @@ class Config:
     username: str | None = None
     password: str | None = field(default=None, repr=False)
     remember_me: bool = True
-    remember_device: bool = True
+    # True asks Trading212 to trust this device; that may require an identity re-check and
+    # can replace the device that is trusted so far (e.g. the phone)
+    remember_device: bool = False
+    # authenticator secret (base32 or otpauth:// URI): renews the login with a 2FA code
+    totp_secret: str | None = field(default=None, repr=False)
     # Cloudflare Turnstile token (header X-Trader-TST), optional
     turnstile_token: str | None = field(default=None, repr=False)
 
@@ -92,6 +96,7 @@ class Config:
         env_map = {
             "T212_USERNAME": "username",
             "T212_PASSWORD": "password",
+            "T212_TOTP_SECRET": "totp_secret",
             "T212_TURNSTILE_TOKEN": "turnstile_token",
         }
         if os.environ.get("T212_ACCOUNT"):
@@ -122,16 +127,17 @@ class Config:
         auth = data.get("auth", {})
         client = data.get("client", {})
 
-        if auth.get("password") and sys.platform != "win32":
+        if (auth.get("password") or auth.get("totp_secret")) and sys.platform != "win32":
             mode = path.stat().st_mode
             if mode & (stat.S_IRGRP | stat.S_IROTH):
                 warnings.warn(
-                    f"{path} contains a password and is readable by others. "
+                    f"{path} contains a password / 2FA secret and is readable by others. "
                     f"Recommended: chmod 600 {path}",
                     stacklevel=3,
                 )
 
-        for key in ("username", "password", "remember_me", "remember_device", "turnstile_token"):
+        for key in ("username", "password", "remember_me", "remember_device", "totp_secret",
+                    "turnstile_token"):
             if key in auth and auth[key] != "":
                 setattr(self, key, auth[key])
 

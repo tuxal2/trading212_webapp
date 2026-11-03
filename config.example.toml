@@ -4,8 +4,11 @@
 
 [auth]
 username = ""            # optional: e-mail; a session file of another user is then ignored
-remember_me = true       # login keeps a LOGIN_TOKEN → expired sessions renew themselves
-remember_device = true   # trust this device after 2FA → renewal without 2FA
+remember_me = true       # login keeps a login token → expired sessions renew themselves
+remember_device = false  # true = ask Trading212 to trust this device (may need an identity
+                         # re-check and can replace your trusted phone)
+totp_secret = ""         # authenticator secret (base32 or otpauth:// URI) → the renewal
+                         # sends 2FA codes itself; or $T212_TOTP_SECRET. Keep this file chmod 600!
 
 [client]
 account = "live"         # "live" (real money) or "demo" (practice money); CLI: --demo / --live

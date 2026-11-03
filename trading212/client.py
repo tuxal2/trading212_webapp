@@ -55,6 +55,7 @@ from .exceptions import (
     TwoFactorRequired,
 )
 from .history import HistoryMixin
+from .totp import totp
 from .models import (
     ORDER_TYPES,
     TIME_VALIDITIES,
@@ -274,8 +275,13 @@ class Trading212Client(HistoryMixin):
         self._save_session_file()
         return result
 
-    def login_with_token(self, token: str | None = None, account_id: int | None = None) -> LoginResult:
-        """Login with the stored ``loginToken`` (``POST /rest/v4/login/token``)."""
+    def login_with_token(self, token: str | None = None, account_id: int | None = None, *,
+                         otp: str | None = None) -> LoginResult:
+        """Login with the stored ``loginToken`` (``POST /rest/v4/login/token``).
+
+        If the server asks for 2FA, ``otp`` is sent, or a code generated from
+        ``config.totp_secret`` (as the web app does, with ``rememberDevice: false``).
+        """
         token = token or self._login_token
         if not token:
             raise AuthenticationError(401, "NoToken", None, None, "", "No loginToken available")
@@ -283,8 +289,18 @@ class Trading212Client(HistoryMixin):
         acc = account_id or self.account_ids.get("LIVE")
         if acc:
             body["accountId"] = acc
+        live = self.host_for("LIVE")
         resp = self._request("POST", "/rest/v4/login/token", headers=self._login_headers(),
-                             json_body=body, base=self.host_for("LIVE"))
+                             json_body=body, expected_errors=True, base=live)
+        if not resp.ok:
+            err = self._to_error(resp)
+            if not isinstance(err, TwoFactorRequired) or not (otp or self.config.totp_secret):
+                raise err
+            log.info("Token login needs 2FA – sending %s code.", "the given" if otp else "a TOTP")
+            body["twoFactorAuth"] = {"rememberDevice": False,
+                                     "authenticationCode": otp or totp(self.config.totp_secret)}
+            resp = self._request("POST", "/rest/v4/login/token", headers=self._login_headers(),
+                                 json_body=body, base=live)
         result = self._apply_login(self._json(resp))
         self._save_session_file()
         return result

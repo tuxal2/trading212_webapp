@@ -44,15 +44,32 @@ The browser uses a persistent profile in `~/.config/trading212/browser-profile` 
 prefers the installed Google Chrome. Options: `--browser-channel chrome|msedge|chromium`,
 `--browser-profile <path>|none`, `--browser-timeout <seconds>`.
 
-The login sends `rememberMe` / `rememberDevice` from the config (default `true`). The
-device is then trusted, and an expired session is renewed with the `LOGIN_TOKEN` cookie
-without password, 2FA or browser. The cookie is valid for 400 days (Chrome's maximum);
-Trading212 can still revoke it earlier (password change, logging out all devices, …).
+The login stores a login token (`rememberMe`, default `true`). An expired session is
+renewed with it without password or browser. The token cookie is valid for 400 days
+(Chrome's maximum); Trading212 can still revoke it earlier (password change, logging out
+all devices, …).
+
+**2FA on renewal:** shortly after a login the renewal works without 2FA, later
+Trading212 asks for a 2FA code again – unless the device is trusted, which needs an
+identity re-check and can replace the device trusted so far (e.g. your phone). So the
+client does not try that (`remember_device = false`). Instead, give it your
+authenticator secret and it sends the 2FA code itself:
+
+```toml
+# ~/.config/trading212/<profile>/config.toml   (chmod 600)
+[auth]
+totp_secret = "JBSWY3DPEHPK3PXP"     # or the whole otpauth://totp/... URI from the QR code
+```
+
+The secret is shown (as text or QR code) when setting up the authenticator app; some apps
+can export it. The phone app keeps working with the same codes. **Security:** with the
+session file and this secret, anyone has full access to the account – protect the files.
 
 ## Unattended use on a server
 
 1. On a desktop: `python -m trading212 login` (browser window, incl. 2FA).
-2. Copy `~/.config/trading212/session.json` to the server (same path, `chmod 600`).
+2. Copy `~/.config/trading212/session.json` to the server (same path, `chmod 600`) and
+   set `totp_secret` there (config file or `$T212_TOTP_SECRET`).
 3. On the server, run your commands as usual – they never ask for anything.
 4. Optional check as its own cron job:
 
@@ -244,8 +261,9 @@ in order, without ever asking for a password or 2FA code:
 
 1. **stored session** (`session.json`, mode 600) → `GET /rest/validate-session`
 2. **LOGIN_TOKEN cookie** → `POST /rest/v3/webclient/authenticate` (what the web app does
-   on start; no 2FA on a trusted device)
-3. **token login** with `loginToken` → `POST /rest/v4/login/token`
+   on start; no 2FA shortly after a login or on a trusted device)
+3. **token login** with `loginToken` → `POST /rest/v4/login/token`; if the server asks for
+   2FA, again with `twoFactorAuth.authenticationCode` from `totp_secret`
 
 If none works it raises `AuthenticationError` → log in through the browser again. Then it
 switches to DEMO if requested. The session file contains cookies, `loginToken`, the
