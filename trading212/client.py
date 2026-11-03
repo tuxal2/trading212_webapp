@@ -5,6 +5,8 @@ Reconstructed from network captures of the web client (WC4, v8.54.0):
   Login
     POST /rest/v5/login                        username/password (+ 2FA)
     POST /rest/v4/login/token                  login with a stored loginToken
+    POST /rest/v3/webclient/authenticate       new session from the LOGIN_TOKEN cookie (no 2FA
+                                               on a trusted device)
     GET  /rest/validate-session                is the session still valid?
     POST {live|demo}.services…/rest/v4/login/session   switch LIVE ↔ DEMO
   Orders
@@ -82,7 +84,7 @@ class Trading212Client(HistoryMixin):
 
         cfg = Config.load("config.toml")
         with Trading212Client(cfg) as t212:
-            t212.ensure_login(otp_callback=lambda ctx: input("2FA code: "))
+            t212.ensure_login()          # session from 'python -m trading212 login'
             print(t212.get_budget().available)
     """
 
@@ -225,7 +227,9 @@ class Trading212Client(HistoryMixin):
               remember_me: bool | None = None, remember_device: bool | None = None) -> LoginResult:
         """Login with username/password (``POST /rest/v5/login``).
 
-        If the server requires 2FA, ``otp`` is used or ``otp_callback(context)`` is called.
+        Needs a Cloudflare Turnstile token (``config.turnstile_token``), otherwise the
+        server answers ``InvalidCredentials`` – normally use the browser login instead
+        (``python -m trading212 login``). If the server requires 2FA, ``otp`` is used or ``otp_callback(context)`` is called.
         ``context`` contains e.g. ``authenticationType`` and ``attemptId``.
         """
         username = username or self.config.username
@@ -285,6 +289,23 @@ class Trading212Client(HistoryMixin):
         self._save_session_file()
         return result
 
+    def has_remember_cookie(self) -> bool:
+        return any(c.name == LOGIN_TOKEN_COOKIE for c in self.http.cookies)
+
+    def reauthenticate(self) -> LoginResult:
+        """New session from the ``LOGIN_TOKEN`` cookie (``POST /rest/v3/webclient/authenticate``).
+
+        This is what the web app does on start. Works without password and captcha; on a
+        device that is not trusted the server answers with ``TwoFactorRequired``.
+        """
+        if not self.has_remember_cookie():
+            raise AuthenticationError(401, "NoLoginTokenCookie", None, None, "", "No LOGIN_TOKEN cookie")
+        resp = self._request("POST", "/rest/v3/webclient/authenticate", headers=self._login_headers(),
+                             base=self.host_for("LIVE"))
+        result = self._apply_login(self._json(resp))
+        self._save_session_file()
+        return result
+
     def validate_session(self) -> bool:
         """``GET /rest/validate-session`` – True if the cookie session is still valid."""
         if self.account_id is None:
@@ -293,9 +314,11 @@ class Trading212Client(HistoryMixin):
                              expected_errors=True)
         return resp.ok
 
-    def ensure_login(self, *, otp: str | None = None, otp_callback: OtpCallback | None = None,
-                     account: str | None = None) -> None:
-        """Stored session → token login → password login; then switch LIVE/DEMO if needed.
+    def ensure_login(self, *, account: str | None = None) -> None:
+        """Stored session → LOGIN_TOKEN cookie → token login; then switch LIVE/DEMO if needed.
+
+        Never asks for a password or 2FA code, so it is safe for unattended runs. Raises
+        ``AuthenticationError`` if no stored login works – then log in through the browser.
 
         ``account``: ``"live"`` or ``"demo"`` (default: ``config.account``).
         """
@@ -310,17 +333,30 @@ class Trading212Client(HistoryMixin):
             if self.sub_system != "LIVE" and self.account_ids.get("LIVE"):
                 self.sub_system, self.account_id = "LIVE", self.account_ids["LIVE"]
             if not self.validate_session():
-                if self._login_token:
-                    try:
-                        self.login_with_token()
-                        log.info("Token login successful.")
-                    except ApiError as exc:
-                        log.info("Token login failed (%s), trying password login.", exc)
-                        self.login(otp=otp, otp_callback=otp_callback)
-                else:
-                    self.login(otp=otp, otp_callback=otp_callback)
+                self._relogin()
         if self.sub_system != target:
             self.switch_account(target)
+
+    def _relogin(self) -> None:
+        last: ApiError | None = None
+        if self.has_remember_cookie():
+            try:
+                self.reauthenticate()
+                log.info("Re-authenticated with the LOGIN_TOKEN cookie.")
+                return
+            except ApiError as exc:
+                log.info("Re-authentication with the LOGIN_TOKEN cookie failed (%s).", exc)
+                last = exc
+        if self._login_token:
+            try:
+                self.login_with_token()
+                log.info("Token login successful.")
+                return
+            except ApiError as exc:
+                log.info("Token login failed (%s).", exc)
+                last = exc
+        raise last or AuthenticationError(401, "NoStoredLogin", None, None, "",
+                                          "No stored login – run 'python -m trading212 login'")
 
     def switch_account(self, target: str) -> LoginResult:
         """Switch between LIVE and DEMO (``POST {target-host}/rest/v4/login/session``).

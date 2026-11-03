@@ -2,14 +2,13 @@
 
     python -m trading212 [global options] COMMAND [options]
 
-Commands: login, browser-login, logout, budget, accounts, summary, search, price,
+Commands: login, logout, keepalive, budget, accounts, summary, search, price,
           orders, order, cancel, positions, history, details, taxes, tax-transactions, gains
 """
 
 from __future__ import annotations
 
 import argparse
-import getpass
 import json
 import logging
 import os
@@ -20,25 +19,24 @@ from pathlib import Path
 from typing import Any
 
 from . import Config, Trading212Client, Trading212Error
+from .config import profile_dir
+from .exceptions import AuthenticationError
 
 
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="trading212", description="Trading212 web API")
+    p.add_argument("-P", "--profile", help="separate login (own session, browser profile and optional "
+                   "config in ~/.config/trading212/PROFILE/); default: $T212_PROFILE")
     p.add_argument("-c", "--config", help="path to the config file (TOML). "
-                   "Default: $T212_CONFIG or ~/.config/trading212/config.toml")
-    p.add_argument("-u", "--username", help="e-mail / username")
-    p.add_argument("-p", "--password", help="password (better: config, $T212_PASSWORD or prompt)")
-    p.add_argument("--otp", help="2FA code (otherwise prompted)")
-    p.add_argument("--turnstile-token", help="value for the X-Trader-TST header (optional)")
+                   "Default: PROFILE/config.toml, $T212_CONFIG or ~/.config/trading212/config.toml")
+    p.add_argument("-u", "--username", help="e-mail (only use a session file of this user)")
     p.add_argument("--session-file", help="path of the session file")
     p.add_argument("--no-session", action="store_true", help="do not read/write a session file")
     p.add_argument("--currency", help="target currency for the account summary, e.g. EUR")
-    p.add_argument("--browser-channel", help="browser-login: 'chrome', 'msedge' or 'chromium'")
-    p.add_argument("--browser-profile", help="browser-login: profile folder ('none' = temporary)")
-    p.add_argument("--headless", action="store_true",
-                   help="browser-login: no window, fills the form with username/password (+ --otp)")
+    p.add_argument("--browser-channel", help="login: 'chrome', 'msedge' or 'chromium'")
+    p.add_argument("--browser-profile", help="login: browser profile folder ('none' = temporary)")
     p.add_argument("--browser-timeout", type=int, default=300, metavar="S",
-                   help="browser-login: max. seconds to wait for the login (default 300)")
+                   help="login: max. seconds to wait for the login in the browser (default 300)")
     acc = p.add_mutually_exclusive_group()
     acc.add_argument("--demo", dest="account", action="store_const", const="demo",
                      help="use the demo account (practice money)")
@@ -64,21 +62,14 @@ def _parser() -> argparse.ArgumentParser:
         kw.setdefault("parents", [common])
         return _orig_add(name, **kw)
     sub.add_parser = add_parser  # type: ignore[method-assign]
-    for name, hlp in [("login", "login with password (+2FA)"),
-                      ("browser-login", "login via stealth browser, stores the session"),
+    for name, hlp in [("login", "log in through a browser window (incl. 2FA), stores the session"),
                       ("logout", "delete the local session"),
+                      ("keepalive", "check/renew the session (for cron), exit 3 = login needed"),
                       ("budget", "show budget/cash (default)"),
                       ("accounts", "show accounts"),
                       ("summary", "raw data: cash, orders, positions"),
                       ("orders", "show open orders")]:
         sub.add_parser(name, help=hlp)
-    # also accept "browser-login --headless ..."
-    bl = sub.choices["browser-login"]
-    bl.add_argument("--headless", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
-    bl.add_argument("--browser-timeout", type=int, default=argparse.SUPPRESS, help=argparse.SUPPRESS)
-    bl.add_argument("-u", "--username", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
-    bl.add_argument("-p", "--password", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
-    bl.add_argument("--otp", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
 
     s = sub.add_parser("search", help="search instruments (name, symbol, ISIN)")
     s.add_argument("query")
@@ -620,12 +611,23 @@ def main(argv: list[str] | None = None) -> int:
     try:
         overrides: dict[str, Any] = {
             "username": args.username,
-            "password": args.password,
-            "turnstile_token": args.turnstile_token,
             "session_file": args.session_file,
             "target_currency": args.currency,
         }
-        cfg = Config.load(args.config, **overrides)
+        profile = args.profile or os.environ.get("T212_PROFILE")
+        config_path = args.config
+        browser_profile = args.browser_profile
+        if profile:
+            pdir = profile_dir(profile)
+            own_config = pdir / "config.toml"
+            if not config_path and own_config.exists():
+                config_path = own_config
+            overrides["session_file"] = args.session_file or pdir / "session.json"
+            browser_profile = browser_profile or str(pdir / "browser-profile")
+        cfg = Config.load(config_path, **overrides)
+        if profile and config_path is None and not args.username:
+            # the shared config belongs to no profile – do not take its username
+            cfg.username = os.environ.get("T212_USERNAME")
         if args.no_session:
             cfg.session_file = None
 
@@ -635,47 +637,30 @@ def main(argv: list[str] | None = None) -> int:
                 print("Local session deleted.")
                 return 0
 
-            def ask_otp(ctx: dict) -> str:
-                kind = ctx.get("authenticationType", "otp")
-                return input(f"2FA code ({kind}): ").strip()
-
-            def ask_credentials() -> None:
-                if not cfg.username:
-                    cfg.username = input("Username (e-mail): ").strip()
-                if not cfg.password:
-                    cfg.password = getpass.getpass("Password: ")
-
-            otp = args.otp or os.environ.get("T212_OTP")
-
-            if command == "browser-login":
+            if command == "login":
                 from .browser_login import browser_login
                 if cfg.session_file is None:
-                    print("browser-login needs a session file (do not use --no-session).", file=sys.stderr)
+                    print("login needs a session file (do not use --no-session).", file=sys.stderr)
                     return 2
                 kwargs: dict[str, Any] = {}
-                if args.browser_profile:
-                    prof = args.browser_profile
-                    kwargs["profile_dir"] = None if prof.lower() == "none" else Path(prof).expanduser()
-                if args.headless:
-                    ask_credentials()
-                browser_login(t212, channel=args.browser_channel, headless=args.headless,
-                              timeout_s=args.browser_timeout, username=cfg.username,
-                              password=cfg.password, otp=otp, otp_callback=ask_otp, **kwargs)
+                if browser_profile:
+                    kwargs["profile_dir"] = (None if browser_profile.lower() == "none"
+                                             else Path(browser_profile).expanduser())
+                browser_login(t212, channel=args.browser_channel, timeout_s=args.browser_timeout, **kwargs)
                 print(f"Session saved to {cfg.session_file} – account {t212.account_id}")
                 return 0
 
-            if command == "login":
-                ask_credentials()
-                r = t212.login(otp=otp, otp_callback=ask_otp)
-                if args.json:
-                    _dump(r)
-                else:
-                    print(f"Logged in: {r.email} – account {r.account_id} ({r.trading_type}, {r.currency})")
+            try:
+                t212.ensure_login(account=args.account)
+            except AuthenticationError as exc:
+                login_cmd = "python -m trading212 " + (f"--profile {profile} login" if profile else "login")
+                print(f"Not logged in and automatic re-login failed ({exc.error_type or exc.code}). "
+                      f"Run '{login_cmd}' (browser window) once and copy {cfg.session_file}.",
+                      file=sys.stderr)
+                return 3
+            if command == "keepalive":
+                print(f"Session OK – account {t212.account_id} ({t212.sub_system})")
                 return 0
-
-            if not t212.validate_session() and not t212._login_token:
-                ask_credentials()
-            t212.ensure_login(otp=otp, otp_callback=ask_otp, account=args.account)
             if not args.json and command not in ("search",):
                 tag = "DEMO (practice money)" if t212.is_demo else "LIVE (real money)"
                 print(f"[{tag}] account {t212.account_id}", file=sys.stderr)

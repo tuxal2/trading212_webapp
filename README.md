@@ -12,15 +12,15 @@ Numbers in the CLI output use the format `1.234,56`.
 pip install -e .            # or: pip install requests
 ```
 
-## Credentials
+## Configuration
 
-The code contains no credentials. They are taken from, in this order:
+The code contains no credentials. Settings are taken from, in this order:
 
-1. parameters (`--username`, `--password`, `--otp` or `Config.load(username=...)`)
-2. environment: `T212_USERNAME`, `T212_PASSWORD`, `T212_OTP`, `T212_TURNSTILE_TOKEN`,
-   `T212_ACCOUNT`, `T212_CONFIRM_ORDERS`, `T212_CONFIG`
-3. config file `~/.config/trading212/config.toml` (template: `config.example.toml`)
-4. interactive prompt (password via `getpass`, 2FA code via prompt)
+1. parameters (`--username`, `--demo`/`--live` … or `Config.load(username=...)`)
+2. environment: `T212_USERNAME`, `T212_ACCOUNT`, `T212_CONFIRM_ORDERS`, `T212_CONFIG`,
+   `T212_PROFILE`
+3. config file `~/.config/trading212/config.toml` (template: `config.example.toml`), or
+   `~/.config/trading212/<profile>/config.toml` with `--profile`
 
 ```bash
 mkdir -p ~/.config/trading212
@@ -28,40 +28,71 @@ cp config.example.toml ~/.config/trading212/config.toml
 chmod 600 ~/.config/trading212/config.toml
 ```
 
-## First login (important)
+## Login
 
-The password login is protected by a Cloudflare captcha. Without a captcha token the
-server answers `InvalidCredentials`, even if the password is correct. So log in once
-through the browser:
+The password login of the web app is protected by Cloudflare Turnstile, and Cloudflare
+blocks headless browsers. So you log in once in a browser window:
 
 ```bash
 pip install -e ".[browser]"            # playwright + playwright-stealth
 playwright install chromium            # only needed if Google Chrome is not installed
-python -m trading212 browser-login     # a window opens, log in normally incl. 2FA
-python -m trading212 budget            # from now on without a browser (session / token login)
+python -m trading212 login             # a window opens, log in normally incl. 2FA
+python -m trading212 budget            # from now on without a browser
 ```
 
-The browser runs in stealth mode (playwright-stealth, no automation flags, prefers the
-installed Google Chrome, persistent profile in `~/.config/trading212/browser-profile`).
-Options: `--browser-channel chrome|msedge|chromium`, `--browser-profile <path>|none`.
+The browser uses a persistent profile in `~/.config/trading212/browser-profile` and
+prefers the installed Google Chrome. Options: `--browser-channel chrome|msedge|chromium`,
+`--browser-profile <path>|none`, `--browser-timeout <seconds>`.
 
-Without a window (e.g. on a server) the form is filled automatically. Username and
-password come from `-u/-p`, `$T212_USERNAME/$T212_PASSWORD`, the config or a prompt;
-the 2FA code from `--otp`, `$T212_OTP` or a prompt:
+The login sends `rememberMe` / `rememberDevice` from the config (default `true`). The
+device is then trusted, and an expired session is renewed with the `LOGIN_TOKEN` cookie
+without password, 2FA or browser. The cookie is valid for 400 days (Chrome's maximum);
+Trading212 can still revoke it earlier (password change, logging out all devices, …).
+
+## Unattended use on a server
+
+1. On a desktop: `python -m trading212 login` (browser window, incl. 2FA).
+2. Copy `~/.config/trading212/session.json` to the server (same path, `chmod 600`).
+3. On the server, run your commands as usual – they never ask for anything.
+4. Optional check as its own cron job:
+
+```cron
+*/30 * * * * /path/to/venv/bin/python -m trading212 keepalive || notify-me "Trading212: login needed"
+```
+
+`keepalive` exits with `0` (session OK / renewed) or `3` (no stored login works any
+more → repeat steps 1–2). All other commands also exit with `3` in that case.
+
+## Several logins (profiles)
+
+Each Trading212 login (e-mail address) gets its own profile. `--profile NAME` (or
+`$T212_PROFILE`) uses the folder `~/.config/trading212/NAME/`:
+
+| File | Purpose |
+|---|---|
+| `session.json` | session and login token of this login |
+| `browser-profile/` | browser profile for `login` |
+| `config.toml` | optional; otherwise the shared `~/.config/trading212/config.toml` is used (without its `username`) |
 
 ```bash
-python -m trading212 browser-login --headless -u me@example.com --otp 123456
+python -m trading212 --profile anna login      # browser window, log in as anna@…
+python -m trading212 --profile ben login       # browser window, log in as ben@…
+python -m trading212 --profile anna budget
+T212_PROFILE=ben python -m trading212 orders
 ```
 
-If Cloudflare shows an interactive challenge instead of passing silently, the
-headless login stops with an error – then run `browser-login` with a window.
+Without `--profile` everything stays in `~/.config/trading212/` as before. On a server,
+copy the profile folder (at least `session.json`) and run `keepalive` per profile:
 
-`browser-login` is only needed again once the stored token expires.
+```cron
+*/30 * * * * for p in anna ben; do /path/to/venv/bin/python -m trading212 --profile $p keepalive || notify-me "Trading212 $p: login needed"; done
+```
 
 ## CLI
 
 ```bash
-python -m trading212 login                 # login incl. 2FA, stores the session
+python -m trading212 login                 # browser login incl. 2FA, stores the session
+python -m trading212 keepalive             # check/renew the session (cron)
 python -m trading212 budget                # budget overview
 python -m trading212 budget --json
 python -m trading212 accounts              # LIVE/DEMO accounts
@@ -126,7 +157,7 @@ from trading212 import Config, Trading212Client
 
 cfg = Config.load("~/.config/trading212/config.toml")
 with Trading212Client(cfg) as t212:
-    t212.ensure_login(otp_callback=lambda ctx: input("2FA code: "))
+    t212.ensure_login()                         # stored session from "python -m trading212 login"
     b = t212.get_budget()
     print(b.available, b.cash.currency)        # free to invest
     for w in b.wallets:
@@ -207,16 +238,21 @@ closed, wrong quantity precision …) are rejected up front by
 
 ## Login flow
 
-`ensure_login()` tries, in order:
+`python -m trading212 login` opens the web app in a browser window and captures the
+login response, cookies, device id (`dUUID`) and login token. `ensure_login()` then tries,
+in order, without ever asking for a password or 2FA code:
 
 1. **stored session** (`session.json`, mode 600) → `GET /rest/validate-session`
-2. **token login** with `loginToken` → `POST /rest/v4/login/token`
-3. **password login** → `POST /rest/v5/login`; on `TwoFactorAuthenticationRequired`
-   (HTTP 403) the request is repeated with `twoFactorAuth.authenticationCode`.
+2. **LOGIN_TOKEN cookie** → `POST /rest/v3/webclient/authenticate` (what the web app does
+   on start; no 2FA on a trusted device)
+3. **token login** with `loginToken` → `POST /rest/v4/login/token`
 
-Then it switches to DEMO if requested. The session file contains cookies, `loginToken`,
-the account ids per sub-system and a fixed device id (`dUUID`), but **no password**. The
-fixed device id makes "remember this device" work.
+If none works it raises `AuthenticationError` → log in through the browser again. Then it
+switches to DEMO if requested. The session file contains cookies, `loginToken`, the
+account ids per sub-system and the fixed device id, but **no password**.
+
+`Trading212Client.login()` (password login, `POST /rest/v5/login`) still exists for the
+library, but needs a Turnstile token (`turnstile_token`), so the CLI does not use it.
 
 ## Endpoints
 
@@ -224,6 +260,7 @@ fixed device id makes "remember this device" work.
 |---|---|---|
 | POST | `/rest/v5/login` | login (username/password/2FA) |
 | POST | `/rest/v4/login/token` | login with loginToken |
+| POST | `/rest/v3/webclient/authenticate` | new session from the `LOGIN_TOKEN` cookie |
 | GET | `/rest/validate-session` | check session |
 | POST | `{demo\|live}.services…/rest/v4/login/session` `{"accountId"}` | switch LIVE ↔ DEMO |
 | GET | `/rest/v1/accounts` | accounts |
@@ -255,10 +292,8 @@ Required headers: `X-Trader-Client: application=WC4,version=8.54.0,dUUID=<uuid>[
 
 ## Known limitations
 
-- **Cloudflare Turnstile:** the web client sends the header `X-Trader-TST` (captcha token)
-  with the password login. Without it the server may reject the login. It can be set via
-  `turnstile_token`; otherwise log in once via `browser-login` and continue with the
-  token/session login.
+- **Cloudflare:** the password login needs a Turnstile token, and headless browsers get
+  "Access Denied" – hence the login in a browser window.
 - The capture contained an additional login header `demo: <hash>` of unknown origin. It can
   be set via `[client.extra_login_headers]` if needed.
 - Cloudflare may detect and block Python clients by their TLS fingerprint.

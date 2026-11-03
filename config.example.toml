@@ -3,11 +3,9 @@
 # and protect it:  chmod 600 ~/.config/trading212/config.toml
 
 [auth]
-username = ""            # e-mail address of the Trading212 account
-password = ""            # leave empty → $T212_PASSWORD or interactive prompt
-remember_me = true       # server returns a loginToken → later logins without password
-remember_device = true   # mark this device as trusted after 2FA
-turnstile_token = ""     # optional: value of the X-Trader-TST header (Cloudflare Turnstile)
+username = ""            # optional: e-mail; a session file of another user is then ignored
+remember_me = true       # login keeps a LOGIN_TOKEN → expired sessions renew themselves
+remember_device = true   # trust this device after 2FA → renewal without 2FA
 
 [client]
 account = "live"         # "live" (real money) or "demo" (practice money); CLI: --demo / --live

@@ -7,12 +7,16 @@ Precedence (highest first):
   3. config file (default: ``~/.config/trading212/config.toml``)
   4. defaults
 
+Several Trading212 logins are kept apart with profiles: profile ``NAME`` uses the folder
+``~/.config/trading212/NAME/`` (``config.toml``, ``session.json``, ``browser-profile/``).
+
 The code contains NO credentials.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import stat
 import sys
 import tomllib
@@ -23,8 +27,16 @@ from typing import Any
 
 from .exceptions import ConfigError
 
-DEFAULT_CONFIG_PATH = Path("~/.config/trading212/config.toml").expanduser()
-DEFAULT_SESSION_PATH = Path("~/.config/trading212/session.json").expanduser()
+CONFIG_DIR = Path("~/.config/trading212").expanduser()
+DEFAULT_CONFIG_PATH = CONFIG_DIR / "config.toml"
+DEFAULT_SESSION_PATH = CONFIG_DIR / "session.json"
+
+
+def profile_dir(name: str) -> Path:
+    """Folder of profile ``name``: ``~/.config/trading212/<name>/``."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name) or name == "browser-profile":
+        raise ConfigError(f"Invalid profile name {name!r} (letters, digits, . _ -)")
+    return CONFIG_DIR / name
 
 
 @dataclass
