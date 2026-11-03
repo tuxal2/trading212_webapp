@@ -1,0 +1,146 @@
+[
+ {
+  "objectID": "INTC_US_EQ",
+  "category": "EQUITY",
+  "type": "STOCK",
+  "shortName": "INTC",
+  "name": "Intel",
+  "fullName": "Intel Corp",
+  "exchangeName": "NASDAQ",
+  "currencyCode": "USD",
+  "isin": "US4581401001",
+  "state": {
+   "tradable": true,
+   "enabled": true,
+   "suspended": false,
+   "conditionalVisibility": false,
+   "closeOnlyMode": false
+  }
+ },
+ {
+  "objectID": "INTC",
+  "category": "CFD",
+  "type": "STOCK",
+  "shortName": "INTC",
+  "name": "Intel",
+  "fullName": "Intel Corp",
+  "exchangeName": "NASDAQ (CFD)",
+  "currencyCode": "USD",
+  "isin": "US4581401001",
+  "state": {
+   "tradable": true,
+   "enabled": true,
+   "suspended": false,
+   "conditionalVisibility": false,
+   "closeOnlyMode": false
+  }
+ },
+ {
+  "objectID": "INLd_EQ",
+  "category": "EQUITY",
+  "type": "STOCK",
+  "shortName": "INL",
+  "name": "Intel",
+  "fullName": "Intel Corp",
+  "exchangeName": "Deutsche B\u00f6rse Xetra",
+  "currencyCode": "EUR",
+  "isin": "US4581401001",
+  "state": {
+   "tradable": true,
+   "enabled": true,
+   "suspended": false,
+   "conditionalVisibility": false,
+   "closeOnlyMode": false
+  }
+ },
+ {
+  "objectID": "WTAIm_EQ",
+  "category": "EQUITY",
+  "type": "ETF",
+  "shortName": "WTAI",
+  "name": "WisdomTree Artificial Intelligence (Acc)",
+  "fullName": "WisdomTree Artificial Intelligence UCITS ETF",
+  "exchangeName": "Borsa Italiana",
+  "currencyCode": "EUR",
+  "isin": "IE00BDVPNG13",
+  "state": {
+   "tradable": true,
+   "enabled": true,
+   "suspended": false,
+   "conditionalVisibility": false,
+   "closeOnlyMode": false
+  }
+ },
+ {
+  "objectID": "INTLl_EQ",
+  "category": "EQUITY",
+  "type": "ETF",
+  "shortName": "INTL",
+  "name": "WisdomTree Artificial Intelligence (Acc)",
+  "fullName": "WisdomTree Artificial Intelligence UCITS ETF",
+  "exchangeName": "London Stock Exchange",
+  "currencyCode": "GBX",
+  "isin": "IE00BDVPNG13",
+  "state": {
+   "tradable": true,
+   "enabled": true,
+   "suspended": false,
+   "conditionalVisibility": false,
+   "closeOnlyMode": false
+  }
+ },
+ {
+  "objectID": "XAIXd_EQ",
+  "category": "EQUITY",
+  "type": "ETF",
+  "shortName": "XAIX",
+  "name": "Xtrackers Artificial Intelligence & Big Data (Acc)",
+  "fullName": "Xtrackers Artificial Intelligence & Big Data UCITS ETF",
+  "exchangeName": "Deutsche B\u00f6rse Xetra",
+  "currencyCode": "EUR",
+  "isin": "IE00BGV5VN51",
+  "state": {
+   "tradable": true,
+   "enabled": true,
+   "suspended": false,
+   "conditionalVisibility": false,
+   "closeOnlyMode": false
+  }
+ },
+ {
+  "objectID": "INT3l_EQ",
+  "category": "EQUITY",
+  "type": "ETF",
+  "shortName": "INT3",
+  "name": "Leverage Shares 3x Long Intel (Acc)",
+  "fullName": "Leverage Shares 3x Long Intel ETP",
+  "exchangeName": "London Stock Exchange",
+  "currencyCode": "USD",
+  "isin": "XS3068788838",
+  "state": {
+   "tradable": true,
+   "enabled": true,
+   "suspended": false,
+   "conditionalVisibility": false,
+   "closeOnlyMode": false
+  }
+ },
+ {
+  "objectID": "NTLA_US_EQ",
+  "category": "EQUITY",
+  "type": "STOCK",
+  "shortName": "NTLA",
+  "name": "Intellia Therapeutics",
+  "fullName": "Intellia Therapeutics Inc",
+  "exchangeName": "NASDAQ",
+  "currencyCode": "USD",
+  "isin": "US45826J1051",
+  "state": {
+   "tradable": true,
+   "enabled": true,
+   "suspended": false,
+   "conditionalVisibility": false,
+   "closeOnlyMode": false
+  }
+ }
+]

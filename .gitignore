@@ -1,0 +1,20 @@
+# virtualenvs / build artefacts
+test/
+.venv/
+venv/
+*.egg-info/
+__pycache__/
+*.pyc
+build/
+dist/
+
+# local configuration and sessions – contain credentials / tokens
+config.toml
+session.json
+*.session.json
+.env
+
+# raw captures of real account data
+*.ORIG.json
+captures/
+*.har

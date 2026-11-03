@@ -1,0 +1,29 @@
+# Trading212 web API – example configuration
+# Copy to ~/.config/trading212/config.toml (or pass it via --config / $T212_CONFIG)
+# and protect it:  chmod 600 ~/.config/trading212/config.toml
+
+[auth]
+username = ""            # e-mail address of the Trading212 account
+password = ""            # leave empty → $T212_PASSWORD or interactive prompt
+remember_me = true       # server returns a loginToken → later logins without password
+remember_device = true   # mark this device as trusted after 2FA
+turnstile_token = ""     # optional: value of the X-Trader-TST header (Cloudflare Turnstile)
+
+[client]
+account = "live"         # "live" (real money) or "demo" (practice money); CLI: --demo / --live
+session_file = "~/.config/trading212/session.json"   # "" = do not store a session
+target_currency = "EUR"
+app_version = "8.54.0"
+accept_language = "de-DE,de;q=0.8"
+timeout = 20
+# user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+
+[orders]
+confirm = false              # false = send orders without confirmation (preview + validation still run)
+preferred_market = "US"      # with several listings: "US" = NASDAQ/NYSE, otherwise e.g. "Xetra"; "" = any
+preferred_currency = "USD"   # preferred currency with several listings; "" = any
+settlement_currency = "instrument"   # settlement: trading currency (US → USD wallet, Xetra → EUR); or "EUR"
+
+# Extra headers sent with login requests only (if the server requires them)
+[client.extra_login_headers]
+# demo = ""

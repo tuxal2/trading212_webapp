@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trading212-webapi"
+version = "0.1.0"
+description = "Unofficial Python API for the Trading212 web app"
+requires-python = ">=3.11"
+dependencies = ["requests>=2.28"]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.49", "playwright-stealth>=2.0"]
+
+[project.scripts]
+trading212 = "trading212.cli:main"
+
+[tool.setuptools]
+packages = ["trading212"]
