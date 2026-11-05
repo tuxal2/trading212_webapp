@@ -25,6 +25,15 @@ preferred_market = "US"      # with several listings: "US" = NASDAQ/NYSE, otherw
 preferred_currency = "USD"   # preferred currency with several listings; "" = any
 settlement_currency = "instrument"   # settlement: trading currency (US → USD wallet, Xetra → EUR); or "EUR"
 
+[buylist]                    # t212-buylist: buy a list copied from a website
+amount = 1000                # per stock, in the stock's currency (whole shares, no fractions)
+# amount = { USD = 1000, EUR = 900 }
+skip_existing = true         # skip stocks that already have an open buy order
+skip_positions = false       # also skip stocks you already hold
+
+[sellprofit]                 # t212-sellprofit: take-profit sell orders for all positions
+percent = 1                  # limit = average buy price + percent (whole position, GTC)
+
 # Extra headers sent with login requests only (if the server requires them)
 [client.extra_login_headers]
 # demo = ""

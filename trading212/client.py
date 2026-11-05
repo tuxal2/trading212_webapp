@@ -590,7 +590,9 @@ class Trading212Client(HistoryMixin):
         q = symbol_or_ticker.strip().upper()
         hits = self.search_instruments(symbol_or_ticker, limit=40)
         if "_" in q and not any(h.ticker.upper() == q for h in hits):
-            hits += self.search_instruments(q.split("_")[0], limit=40)
+            # search the symbol without the lower-case exchange suffix: ADSd_EQ → ADS
+            stem = re.sub(r"[a-z]+$", "", symbol_or_ticker.strip().split("_")[0]) or q.split("_")[0]
+            hits += self.search_instruments(stem, limit=40)
 
         want = "CFD" if self.trading_type == "CFD" else ("CRYPTO" if self.trading_type == "CRYPTO" else "EQUITY")
 

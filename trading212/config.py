@@ -39,6 +39,30 @@ def profile_dir(name: str) -> Path:
     return CONFIG_DIR / name
 
 
+def load_profile_config(profile: str | None = None, config_path: str | os.PathLike | None = None,
+                        **overrides: Any) -> tuple["Config", Path | None]:
+    """Config for ``profile`` (default ``$T212_PROFILE``) → ``(config, config file used)``.
+
+    A profile uses its own ``config.toml`` if present, otherwise the shared one (without its
+    ``username``), and always its own ``session.json``. An explicit ``config_path`` or
+    ``session_file`` override wins.
+    """
+    profile = profile or os.environ.get("T212_PROFILE")
+    path = Path(config_path).expanduser() if config_path else None
+    if profile:
+        pdir = profile_dir(profile)
+        if path is None and (pdir / "config.toml").exists():
+            path = pdir / "config.toml"
+        if overrides.get("session_file") is None:
+            overrides["session_file"] = pdir / "session.json"
+    cfg = Config.load(path, **overrides)
+    if profile and path is None and overrides.get("username") is None:
+        # the shared config belongs to no profile – do not take its username
+        cfg.username = os.environ.get("T212_USERNAME")
+    used = path or Path(os.environ.get("T212_CONFIG") or DEFAULT_CONFIG_PATH).expanduser()
+    return cfg, used if used.exists() else None
+
+
 @dataclass
 class Config:
     # --- [auth] ---

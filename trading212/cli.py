@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from . import Config, Trading212Client, Trading212Error
-from .config import profile_dir
+from .config import load_profile_config, profile_dir
 from .exceptions import AuthenticationError
 
 
@@ -131,7 +131,8 @@ def _parser() -> argparse.ArgumentParser:
     gn.add_argument("--year", type=int, help="tax year (default: current year)")
     gn.add_argument("--symbol")
     gn.add_argument("--currency", dest="gain_currency", default="EUR",
-                    help="currency for the evaluation (default EUR, relevant for German tax)")
+                    help="only sales with amounts in this currency, evaluated in it "
+                         "(default EUR = all sales, relevant for German tax)")
 
     c = sub.add_parser("cancel", help="cancel order(s)",
                        description="Examples: cancel 51234567892 | cancel 1 2 3 | cancel --all "
@@ -526,10 +527,13 @@ def _cmd_gains(t212: Trading212Client, args) -> int:
     year = args.year or _date.today().year
     ticker = _ticker_arg(t212, args.symbol)
     cur = args.gain_currency.upper()
-    gains = t212.realized_gains(year=year, tickers=[ticker] if ticker else None)
+    all_gains = t212.realized_gains(year=year, tickers=[ticker] if ticker else None)
+    # EUR sales have no USD amounts etc. – only show sales traded / valued in this currency
+    gains = [g for g in all_gains if cur in g.gain]
+    skipped = len(all_gains) - len(gains)
     positions = t212.get_positions()
     if args.json:
-        _dump({"year": year, "realized": gains, "positions": positions})
+        _dump({"year": year, "currency": cur, "realized": gains, "positions": positions})
         return 0
     print(f"Realised profit/loss {year} (per sale, in {cur})")
     total = Decimal("0")
@@ -548,6 +552,8 @@ def _cmd_gains(t212: Trading212Client, args) -> int:
                 loss += val
     print(f"  {len(gains)} sales: gains {_signed(win, cur)}, losses {_signed(loss, cur)}, "
           f"net {_signed(total, cur)}")
+    if skipped:
+        print(f"  ({skipped} sales without {cur} amounts not shown – e.g. --currency EUR shows all)")
     unreal = sum((p.ppl for p in positions), Decimal("0"))
     print(f"Unrealised (open positions): {_signed(unreal, t212.currency)}")
     try:
@@ -615,19 +621,10 @@ def main(argv: list[str] | None = None) -> int:
             "target_currency": args.currency,
         }
         profile = args.profile or os.environ.get("T212_PROFILE")
-        config_path = args.config
         browser_profile = args.browser_profile
         if profile:
-            pdir = profile_dir(profile)
-            own_config = pdir / "config.toml"
-            if not config_path and own_config.exists():
-                config_path = own_config
-            overrides["session_file"] = args.session_file or pdir / "session.json"
-            browser_profile = browser_profile or str(pdir / "browser-profile")
-        cfg = Config.load(config_path, **overrides)
-        if profile and config_path is None and not args.username:
-            # the shared config belongs to no profile – do not take its username
-            cfg.username = os.environ.get("T212_USERNAME")
+            browser_profile = browser_profile or str(profile_dir(profile) / "browser-profile")
+        cfg, _ = load_profile_config(profile, args.config, **overrides)
         if args.no_session:
             cfg.session_file = None
 

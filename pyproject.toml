@@ -14,6 +14,8 @@ browser = ["playwright>=1.49", "playwright-stealth>=2.0"]
 
 [project.scripts]
 trading212 = "trading212.cli:main"
+t212-buylist = "t212_tools.buylist:main"
+t212-sellprofit = "t212_tools.sellprofit:main"
 
 [tool.setuptools]
-packages = ["trading212"]
+packages = ["trading212", "t212_tools"]

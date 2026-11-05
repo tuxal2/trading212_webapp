@@ -167,6 +167,66 @@ python -m trading212 gains --year 2026                # realised P/L per sale in
 python -m trading212 gains --year 2026 --currency USD --symbol MSFT
 ```
 
+## Buy a list (t212-buylist)
+
+`t212-buylist` buys a stock list copied from a website (tab separated: symbol, name, ISIN,
+currency, three prices, strategies):
+
+```
+TEAM	Atlassian Corp Plc	US0494681010	USD	181.80	181.80	183.80	MOUNT US Tech 100, …
+NVDA	NVIDIA Corporation	US67066G1040	USD	198.50	198.50	198.50	ARROW US 100
+```
+
+Per line it places a **limit buy order** (limit = first price, valid until end of day)
+for `floor(amount / limit)` **whole shares**. The stock is found by its ISIN in the listing
+currency. Lines with an open buy order are skipped (`skip_existing`); positions and open sell
+orders are only shown as a note (`skip_positions = true` skips held stocks too).
+
+```toml
+[buylist]                     # in the (profile's) config.toml
+amount = 1000                 # per stock, in the stock's currency
+# amount = { USD = 1000, EUR = 900 }
+skip_existing = true          # skip if an open buy order exists
+skip_positions = false        # skip stocks you already hold
+```
+
+```bash
+t212-buylist -P stefan --dry-run liste.txt     # check only: resolve, size, validate, costs
+t212-buylist -P stefan liste.txt               # same, then asks before sending
+t212-buylist -P stefan                         # paste the list, end with Ctrl-D
+t212-buylist -P stefan --amount 500 --demo liste.txt
+```
+
+Every order is validated by Trading212 and shown with its total before anything is sent.
+Without a terminal it only sends with `--yes`. Exit code: `0` ok, `1` an order failed /
+not sent, `2` no stocks in the input, `3` not logged in.
+
+## Take profit (t212-sellprofit)
+
+`t212-sellprofit` places a **limit sell order for every position** at its average buy price
++ 1 % (rounded up to the cent), for the **whole position**, valid **until cancelled**.
+Existing sell orders of that stock are **cancelled first**; an identical order (same quantity,
+limit and validity) is left as it is, so the command can run daily.
+
+```bash
+t212-sellprofit us  -P stefan --dry-run     # US stocks (USD): show what would happen
+t212-sellprofit eur -P stefan               # EUR stocks: cancel old sell orders, place new ones (asks first)
+t212-sellprofit all -P stefan --percent 2 --yes
+```
+
+```toml
+[sellprofit]
+percent = 1
+```
+
+- The average buy price is in the stock's currency – for US stocks +1 % in USD; currency
+  moves (USD/EUR) are not included.
+- Shares held in a pie (AutoInvest) cannot be sold by order; positions only held in pies are
+  listed below the table, mixed positions sell only the free part.
+- The new order is validated before cancelling only if there was no old sell order (otherwise
+  the shares are still blocked). If placing fails after cancelling, the output says so
+  clearly – the old sell order is then gone.
+
 ## Python
 
 ```python
