@@ -512,6 +512,21 @@ class Position:
     def ppl_percent(self) -> Decimal | None:
         return (self.ppl / self.investment * 100) if self.investment else None
 
+    @property
+    def first_buy(self) -> datetime | None:
+        """First buy of the current position (``created``; resets after a full sale)."""
+        try:
+            return datetime.fromisoformat(self.created) if self.created else None
+        except ValueError:
+            return None
+
+    def held_days(self, today: date | None = None) -> int | None:
+        """Whole days since the first buy."""
+        fb = self.first_buy
+        if fb is None:
+            return None
+        return ((today or date.today()) - fb.astimezone().date()).days
+
     @classmethod
     def from_json(cls, d: dict) -> "Position":
         z = Decimal("0")

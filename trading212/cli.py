@@ -356,24 +356,41 @@ def _ticker_arg(t212: Trading212Client, symbol: str | None, market: str | None =
     return symbol if "_" in symbol else t212.resolve_ticker(symbol, market=market).ticker
 
 
+def _held(days: int | None) -> str:
+    if days is None:
+        return "-"
+    return f"{days // 365} y {days % 365} d" if days >= 365 else f"{days} d"
+
+
 def _cmd_positions(t212: Trading212Client, args) -> int:
     pos = t212.get_positions()
+    try:
+        names = {t: i.full_name or i.name for t, i in t212.instrument_catalog().items()}
+    except Trading212Error as exc:                      # names are optional
+        print(f"Instrument names not available: {exc}", file=sys.stderr)
+        names = {}
     if args.json:
-        _dump(pos)
+        _dump([dict(_to_jsonable(p), name=names.get(p.ticker), first_buy=p.created,
+                    held_days=p.held_days()) for p in pos])
         return 0
     cur = t212.currency
-    print(f"{'Ticker':<14}{'Shares':>16}{'Avg price*':>13}{'Invested':>14}{'Value':>14}{'P/L':>13}{'%':>8}")
+    print(f"{'Ticker':<14}{'Name':<22}{'Shares':>14}{'Avg price*':>13}{'Invested':>14}{'Value':>14}"
+          f"{'P/L':>13}{'%':>8}  {'First buy':<11}{'Held':>9}")
     tot_inv = tot_val = tot_ppl = Decimal("0")
     for p in sorted(pos, key=lambda x: x.value, reverse=True):
         pct = p.ppl_percent
         qty = _qty(p.quantity.quantize(Decimal("0.000001")).normalize()) if p.quantity else "0"
-        print(f"{p.ticker:<14}{qty:>16} {_fmt(p.average_price, places=2):>12}{_fmt(p.investment):>14}"
-              f"{_fmt(p.value):>14}{_signed(p.ppl):>13}{(_signed(pct) if pct is not None else '-'):>8}")
+        name = names.get(p.ticker) or ""
+        name = name if len(name) <= 21 else name[:20] + "…"
+        first = p.first_buy.astimezone().strftime("%d.%m.%Y") if p.first_buy else "-"
+        print(f"{p.ticker:<14}{name:<22}{qty:>14} {_fmt(p.average_price, places=2):>12}{_fmt(p.investment):>14}"
+              f"{_fmt(p.value):>14}{_signed(p.ppl):>13}{(_signed(pct) if pct is not None else '-'):>8}"
+              f"  {first:<11}{_held(p.held_days()):>9}")
         tot_inv += p.investment
         tot_val += p.value
         tot_ppl += p.ppl
     pct = (tot_ppl / tot_inv * 100) if tot_inv else None
-    print(f"{'Total':<14}{'':>16}{'':>13}{_fmt(tot_inv):>14}{_fmt(tot_val):>14}{_signed(tot_ppl):>13}"
+    print(f"{'Total':<36}{'':>14}{'':>13}{_fmt(tot_inv):>14}{_fmt(tot_val):>14}{_signed(tot_ppl):>13}"
           f"{(_signed(pct) if pct is not None else '-'):>8}   ({cur}; *avg price in quote currency)")
     return 0
 

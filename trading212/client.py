@@ -20,6 +20,7 @@ Reconstructed from network captures of the web client (WC4, v8.54.0):
     DELETE /rest/v1/equity/value-order/{id}
     POST   /instrumentarium/v1/prices/last-trade        last prices
     GET    /rest/instrument-search/v3/config            search configuration (Algolia)
+    GET    /instrumentarium/v2/instruments/0            catalog of all instruments (names, ISIN, currency)
   Account / budget
     GET  /rest/v1/accounts                     LIVE and DEMO accounts
     GET  /rest/v1/customers/accounts/summary   net worth across all accounts
@@ -71,6 +72,26 @@ from .models import (
 )
 
 log = logging.getLogger(__name__)
+CATALOG_CACHE = Path(os.environ.get("XDG_CACHE_HOME") or "~/.cache").expanduser() / "trading212" / "instruments.json"
+CATALOG_MAX_AGE = 24 * 3600
+# renewals of the login – also written to auth.log next to the session file
+auth_log = logging.getLogger("trading212.auth")
+
+
+def _enable_auth_log(session_file: Path) -> None:
+    """Append ``trading212.auth`` messages to ``<session dir>/auth.log`` (once per file)."""
+    path = str(Path(session_file).with_name("auth.log"))
+    if any(getattr(h, "baseFilename", None) == path for h in auth_log.handlers):
+        return
+    try:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        h = logging.FileHandler(path, encoding="utf-8")
+    except OSError as exc:
+        log.warning("auth.log not writable: %s", exc)
+        return
+    h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    auth_log.addHandler(h)
+    auth_log.setLevel(logging.INFO)
 
 COOKIE_DOMAIN = ".trading212.com"
 LOGIN_TOKEN_COOKIE = "LOGIN_TOKEN"
@@ -100,6 +121,9 @@ class Trading212Client(HistoryMixin):
         self._login_token: str | None = None
         self.sub_system: str = "LIVE"                    # LIVE | DEMO
         self.account_ids: dict[str, int] = {}            # {"LIVE": 500..., "DEMO": 500...}
+        self._catalog: dict[str, Instrument] | None = None
+        if self.config.session_file:
+            _enable_auth_log(self.config.session_file)
         self._load_session_file()
 
     # ------------------------------------------------------------------ context
@@ -296,7 +320,7 @@ class Trading212Client(HistoryMixin):
             err = self._to_error(resp)
             if not isinstance(err, TwoFactorRequired) or not (otp or self.config.totp_secret):
                 raise err
-            log.info("Token login needs 2FA – sending %s code.", "the given" if otp else "a TOTP")
+            auth_log.info("Token login needs 2FA – sending %s code.", "the given" if otp else "a TOTP")
             body["twoFactorAuth"] = {"rememberDevice": False,
                                      "authenticationCode": otp or totp(self.config.totp_secret)}
             resp = self._request("POST", "/rest/v4/login/token", headers=self._login_headers(),
@@ -355,22 +379,25 @@ class Trading212Client(HistoryMixin):
 
     def _relogin(self) -> None:
         last: ApiError | None = None
+        auth_log.info("Session expired – renewing (TOTP secret %s).",
+                      "set" if self.config.totp_secret else "NOT set")
         if self.has_remember_cookie():
             try:
                 self.reauthenticate()
-                log.info("Re-authenticated with the LOGIN_TOKEN cookie.")
+                auth_log.info("Re-authenticated with the LOGIN_TOKEN cookie.")
                 return
             except ApiError as exc:
-                log.info("Re-authentication with the LOGIN_TOKEN cookie failed (%s).", exc)
+                auth_log.info("Re-authentication with the LOGIN_TOKEN cookie failed (%s).", exc)
                 last = exc
         if self._login_token:
             try:
                 self.login_with_token()
-                log.info("Token login successful.")
+                auth_log.info("Token login successful.")
                 return
             except ApiError as exc:
-                log.info("Token login failed (%s).", exc)
+                auth_log.warning("Token login failed (%s).", exc)
                 last = exc
+        auth_log.error("Renewal failed – a browser login is needed.")
         raise last or AuthenticationError(401, "NoStoredLogin", None, None, "",
                                           "No stored login – run 'python -m trading212 login'")
 
@@ -538,6 +565,39 @@ class Trading212Client(HistoryMixin):
         """Last traded price per ticker, e.g. ``{"INTC_US_EQ": Decimal("61.42")}``."""
         return self._post("/instrumentarium/v1/prices/last-trade",
                           body={"tickers": list(tickers), "extended": extended})
+
+    def instrument_catalog(self, *, refresh: bool = False) -> dict[str, Instrument]:
+        """All instruments by ticker (``GET /instrumentarium/v2/instruments/0``, ~30,000).
+
+        The web app loads this list on start. It is cached for a day in
+        ``~/.cache/trading212/instruments.json`` (only ticker, names, ISIN, currency, type).
+        """
+        if self._catalog is not None and not refresh:
+            return self._catalog
+        rows = None
+        try:
+            if not refresh and time.time() - CATALOG_CACHE.stat().st_mtime < CATALOG_MAX_AGE:
+                rows = json.loads(CATALOG_CACHE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            rows = None
+        if rows is None:
+            data = self._json(self._request("GET", "/instrumentarium/v2/instruments/0",
+                                            headers=self._auth_headers()))
+            rows = [[i.get("ticker"), i.get("shortName"), i.get("fullName"), i.get("currency"),
+                     i.get("isin"), i.get("type"), bool(i.get("tradable", True))]
+                    for i in data.get("instruments", []) if i.get("ticker")]
+            try:
+                CATALOG_CACHE.parent.mkdir(parents=True, exist_ok=True)
+                CATALOG_CACHE.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+            except OSError as exc:
+                log.info("Instrument cache not writable: %s", exc)
+        self._catalog = {
+            t: Instrument(ticker=t, short_name=short or "", name=full or short or "", full_name=full or "",
+                          category="EQUITY" if t.endswith("_EQ") else (typ or ""), type=typ or "",
+                          currency=cur, isin=isin, exchange=None, tradable=tradable)
+            for t, short, full, cur, isin, typ, tradable in rows
+        }
+        return self._catalog
 
     def search_instruments(self, query: str, limit: int = 10) -> list[Instrument]:
         """Instrument search as in the web app (Trading212's Algolia index)."""
