@@ -33,7 +33,9 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--session-file", help="path of the session file")
     p.add_argument("--no-session", action="store_true", help="do not read/write a session file")
     p.add_argument("--currency", help="target currency for the account summary, e.g. EUR")
-    p.add_argument("--browser-channel", help="login: 'chrome', 'msedge' or 'chromium'")
+    p.add_argument("--browser-channel", help="login: 'chrome', 'msedge', 'chromium' or 'brave'")
+    p.add_argument("--browser-path", help="login: program file of another Chromium-based browser "
+                                          "(or $T212_BROWSER_PATH)")
     p.add_argument("--browser-profile", help="login: browser profile folder ('none' = temporary)")
     p.add_argument("--browser-timeout", type=int, default=300, metavar="S",
                    help="login: max. seconds to wait for the login in the browser (default 300)")
@@ -660,7 +662,8 @@ def main(argv: list[str] | None = None) -> int:
                 if browser_profile:
                     kwargs["profile_dir"] = (None if browser_profile.lower() == "none"
                                              else Path(browser_profile).expanduser())
-                browser_login(t212, channel=args.browser_channel, timeout_s=args.browser_timeout, **kwargs)
+                browser_login(t212, channel=args.browser_channel, executable_path=args.browser_path,
+                              timeout_s=args.browser_timeout, **kwargs)
                 print(f"Session saved to {cfg.session_file} – account {t212.account_id}")
                 return 0
 

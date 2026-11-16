@@ -41,8 +41,18 @@ python -m trading212 budget            # from now on without a browser
 ```
 
 The browser uses a persistent profile in `~/.config/trading212/browser-profile` and
-prefers the installed Google Chrome. Options: `--browser-channel chrome|msedge|chromium`,
+prefers the installed Google Chrome. Options: `--browser-channel chrome|msedge|chromium|brave`,
+`--browser-path <program file>` (any Chromium-based browser, also `$T212_BROWSER_PATH`),
 `--browser-profile <path>|none`, `--browser-timeout <seconds>`.
+
+```bash
+python -m trading212 --profile stefan login --browser-channel brave
+python -m trading212 login --browser-path "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+```
+
+The login window always uses its own profile, not your normal browser profile. Extensions are
+allowed there: install your password manager once in the login window (it stays in that profile). With Brave, if
+Cloudflare's check does not appear, switch Brave Shields off for `app.trading212.com` in that window.
 
 The login stores a login token (`rememberMe`, default `true`). An expired session is
 renewed with it without password or browser. The token cookie is valid for 400 days
