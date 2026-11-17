@@ -18,3 +18,6 @@ session.json
 *.ORIG.json
 captures/
 *.har
+
+# login debug output (screenshots may show the e-mail address)
+debug/

@@ -50,6 +50,46 @@ python -m trading212 --profile stefan login --browser-channel brave
 python -m trading212 login --browser-path "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
 ```
 
+**Camoufox** (a Firefox build with a consistent, human-looking fingerprint – often gets through
+Cloudflare more smoothly):
+
+```bash
+pip install -U "camoufox[geoip]"
+python -m camoufox fetch                       # downloads the browser once
+python -m trading212 --profile stefan login --browser-channel camoufox
+```
+
+`T212_BROWSER=camoufox` makes it the default. Camoufox keeps its own profile next to the
+Chromium one (`browser-profile-camoufox`), so the Cloudflare cookies survive between logins.
+Chrome extensions (e.g. a password manager installed for Brave) do not run in it.
+
+**Automatic login:** if the (profile's) config has the e-mail and password, the login window
+fills them in, waits for the Cloudflare check (click it yourself if it asks), submits the form
+and – with `totp_secret` – enters the 2FA code. If a step does not work out, the window simply
+stays open for you. `--no-submit` only pre-fills, `--no-prefill` does nothing automatically.
+**Without a window** (once the automatic login works for you):
+
+```bash
+python -m trading212 --profile stefan login --browser-channel camoufox --headless virtual  # Linux, needs xvfb
+python -m trading212 --profile stefan login --browser-channel camoufox --headless          # really headless
+```
+
+`virtual` runs the normal browser on an invisible display (`sudo apt install xvfb`) – Cloudflare
+treats it like a window. Real headless browsers are refused more often. Without a window there is
+nobody to click a Cloudflare checkbox, so this only works when the check passes by itself; then
+run once with a window again. Requires `username`, `password`/`password_file` and `totp_secret`.
+
+`--debug-dir DIR` saves per step a screenshot and a JSON list of the form fields (type, name,
+test id, visible, filled – never the values) – useful if a step is not recognised. The
+screenshots can show the e-mail address; password fields only show dots.
+
+```toml
+# ~/.config/trading212/<profile>/config.toml   (chmod 600)
+[auth]
+username = "me@example.com"
+password_file = "~/.config/trading212/<profile>/password"   # or password = "…", or $T212_PASSWORD
+```
+
 The login window always uses its own profile, not your normal browser profile. Extensions are
 allowed there: install your password manager once in the login window (it stays in that profile). With Brave, if
 Cloudflare's check does not appear, switch Brave Shields off for `app.trading212.com` in that window.

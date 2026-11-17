@@ -164,6 +164,14 @@ class Config:
                     "turnstile_token"):
             if key in auth and auth[key] != "":
                 setattr(self, key, auth[key])
+        if auth.get("password_file") and not self.password:
+            pf = Path(str(auth["password_file"])).expanduser()
+            if not pf.is_absolute():
+                pf = path.parent / pf
+            try:
+                self.password = pf.read_text(encoding="utf-8").strip() or None
+            except OSError as exc:
+                raise ConfigError(f"password_file {pf}: {exc}") from exc
 
         if client.get("account"):
             self.account = str(client["account"]).lower()

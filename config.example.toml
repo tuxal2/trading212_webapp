@@ -4,6 +4,9 @@
 
 [auth]
 username = ""            # optional: e-mail; a session file of another user is then ignored
+                         # (also pre-filled in the login window)
+# password_file = "~/.config/trading212/password"   # login window: filled in and submitted, 2FA from totp_secret;
+                         # or password = "…" / $T212_PASSWORD – keep the file chmod 600
 remember_me = true       # login keeps a login token → expired sessions renew themselves
 remember_device = false  # true = ask Trading212 to trust this device (may need an identity
                          # re-check and can replace your trusted phone)

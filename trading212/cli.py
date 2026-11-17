@@ -33,7 +33,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--session-file", help="path of the session file")
     p.add_argument("--no-session", action="store_true", help="do not read/write a session file")
     p.add_argument("--currency", help="target currency for the account summary, e.g. EUR")
-    p.add_argument("--browser-channel", help="login: 'chrome', 'msedge', 'chromium' or 'brave'")
+    p.add_argument("--browser-channel", help="login: 'chrome', 'msedge', 'chromium', 'brave' or 'camoufox' (or $T212_BROWSER)")
     p.add_argument("--browser-path", help="login: program file of another Chromium-based browser "
                                           "(or $T212_BROWSER_PATH)")
     p.add_argument("--browser-profile", help="login: browser profile folder ('none' = temporary)")
@@ -64,8 +64,27 @@ def _parser() -> argparse.ArgumentParser:
         kw.setdefault("parents", [common])
         return _orig_add(name, **kw)
     sub.add_parser = add_parser  # type: ignore[method-assign]
-    for name, hlp in [("login", "log in through a browser window (incl. 2FA), stores the session"),
-                      ("logout", "delete the local session"),
+    lg = sub.add_parser("login", help="log in through a browser window (incl. 2FA), stores the session")
+    # the browser options also after the command: "login --browser-channel camoufox"
+    lg.add_argument("--browser-channel", default=argparse.SUPPRESS,
+                    help="'chrome', 'msedge', 'chromium', 'brave' or 'camoufox' (or $T212_BROWSER)")
+    lg.add_argument("--browser-path", default=argparse.SUPPRESS,
+                    help="program file of another Chromium-based browser (or $T212_BROWSER_PATH)")
+    lg.add_argument("--browser-profile", default=argparse.SUPPRESS, help="browser profile folder ('none' = temporary)")
+    lg.add_argument("--browser-timeout", type=int, default=argparse.SUPPRESS, metavar="S",
+                    help="max. seconds to wait for the login (default 300)")
+    lg.add_argument("--headless", nargs="?", const="on", choices=["on", "virtual", "off"],
+                    help="no window: 'on' (default when given) or 'virtual' (Camoufox on a virtual "
+                         "display, needs xvfb); only with username, password and totp_secret "
+                         "(or $T212_HEADLESS)")
+    lg.add_argument("--debug-dir", metavar="DIR",
+                    help="save a screenshot and the form structure (no values) per login step to DIR")
+    lg.add_argument("--no-submit", action="store_true",
+                    help="only pre-fill: do not submit the form and do not enter the 2FA code")
+    lg.add_argument("--no-prefill", action="store_true",
+                    help="do not fill in e-mail/password ([auth] username + password/password_file, "
+                         "$T212_USERNAME/$T212_PASSWORD)")
+    for name, hlp in [("logout", "delete the local session"),
                       ("keepalive", "check/renew the session (for cron), exit 3 = login needed"),
                       ("budget", "show budget/cash (default)"),
                       ("accounts", "show accounts"),
@@ -662,7 +681,12 @@ def main(argv: list[str] | None = None) -> int:
                 if browser_profile:
                     kwargs["profile_dir"] = (None if browser_profile.lower() == "none"
                                              else Path(browser_profile).expanduser())
-                browser_login(t212, channel=args.browser_channel, executable_path=args.browser_path,
+                browser_login(t212, channel=args.browser_channel or os.environ.get("T212_BROWSER"),
+                              executable_path=args.browser_path,
+                              prefill=not getattr(args, "no_prefill", False),
+                              auto_submit=not getattr(args, "no_submit", False),
+                              debug_dir=getattr(args, "debug_dir", None),
+                              headless=getattr(args, "headless", None),
                               timeout_s=args.browser_timeout, **kwargs)
                 print(f"Session saved to {cfg.session_file} – account {t212.account_id}")
                 return 0
